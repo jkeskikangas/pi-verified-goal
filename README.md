@@ -59,6 +59,10 @@ The objective, verify command and audit settings are set only by `/goal` and sto
 
 Inside [Herdr](https://herdr.dev) (`HERDR_ENV=1`), a goal that stops for a human marks its pane **blocked** through the official Herdr pi integration. Herdr then notifies you, and `herdr agent wait` returns. Stops that need a human are: blocked, budget or run limit reached, stalled, or auditor unavailable. Stops you caused yourself, such as pause, Esc or reopening a session, don't signal. Resume, clear or a new goal clears the signal. Outside Herdr nothing is emitted.
 
+## Delegation (pi-actors)
+
+When an agent waits on child agents or on a question to the human, [pi-actors](https://github.com/jkeskikangas/pi-actors) emits `actors:waiting`. While it is set, the goal neither continues nor pauses: the next pushed report or answer wakes the agent. This keeps a coordinator running under `/goal` from spinning while its children work.
+
 ## Notes
 
 - Uninstall other `/goal` extensions first (`pi remove npm:@narumitw/pi-goal`). They register the same command and tool names.

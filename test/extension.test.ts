@@ -30,6 +30,7 @@ function host(opts: { audits?: AuditResult[]; confirm?: boolean } = {}) {
 	const entries: any[] = [];
 	const sent: any[] = [];
 	const events: any[] = [];
+	const listeners = new Map<string, ((d: any) => void)[]>();
 	const notes: string[] = [];
 	const auditInputs: AuditInput[] = [];
 	const audits = [...(opts.audits ?? [])];
@@ -40,7 +41,13 @@ function host(opts: { audits?: AuditResult[]; confirm?: boolean } = {}) {
 		registerCommand: (name: string, c: any) => commands.set(name, c),
 		appendEntry: (customType: string, data: unknown) => entries.push({ type: "custom", customType, data }),
 		sendMessage: (m: any, o: any) => sent.push({ ...m, ...o }),
-		events: { emit: (name: string, data: any) => events.push({ name, ...data }) },
+		events: {
+			emit: (name: string, data: any) => {
+				events.push({ name, ...data });
+				for (const h of listeners.get(name) ?? []) h(data);
+			},
+			on: (name: string, h: (d: any) => void) => listeners.set(name, [...(listeners.get(name) ?? []), h]),
+		},
 	};
 	const ctx: any = {
 		cwd,
@@ -61,7 +68,8 @@ function host(opts: { audits?: AuditResult[]; confirm?: boolean } = {}) {
 	const callTool = (name: string, params: any) => tools.get(name).execute("id", params, undefined, undefined, ctx);
 	const command = (args: string) => commands.get("goal").handler(args, ctx);
 	const touch = (content: string) => writeFileSync(join(cwd, "work.txt"), content);
-	return { emit, goal, settle, callTool, command, touch, entries, sent, notes, auditInputs, ctx, events };
+	const emitBus = (name: string, data: any) => pi.events.emit(name, data);
+	return { emit, goal, settle, callTool, command, touch, entries, sent, notes, auditInputs, ctx, events, emitBus };
 }
 
 const approved: AuditResult = { verdict: "approved", report: "ok\nVERDICT: APPROVED", tokens: 100 };
@@ -271,3 +279,17 @@ test("outside Herdr nothing is emitted", () =>
 		await h.callTool("goal_blocked", { goal_id: h.goal()!.id, reason: "x" });
 		assert.deepEqual(h.events, []);
 	}));
+
+test("while a delegation extension reports waiting, the goal neither continues nor pauses", async () => {
+	const h = host();
+	await h.command("obj");
+	h.touch("1");
+	h.emitBus("actors:waiting", { waiting: true });
+	assert.equal(await h.settle(), undefined, "no continuation while waiting on children");
+	await h.emit("agent_settled");
+	assert.equal(h.goal()!.status, "active", "not paused either");
+	assert.equal(h.goal()!.continuations, 0);
+	h.emitBus("actors:waiting", { waiting: false });
+	h.touch("2");
+	assert.equal((await h.settle()).continue, true, "continues again once the delegates reported");
+});

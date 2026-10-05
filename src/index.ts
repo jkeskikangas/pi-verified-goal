@@ -57,6 +57,13 @@ export function goalExtension(pi: ExtensionAPI, deps: GoalDeps) {
 	// The integration counts active/inactive events, so emit only on edges.
 	const inHerdr = process.env.HERDR_ENV === "1";
 	let herdrBlocked = false;
+	// pi-actors (or any delegation extension) reports when this agent is waiting on children or on
+	// the human. The goal then neither continues nor pauses: the pushed reply wakes the agent.
+	let delegateWaiting = false;
+	let settledWhileWaiting = false;
+	pi.events?.on?.("actors:waiting", (d: unknown) => {
+		delegateWaiting = !!(d as { waiting?: boolean } | undefined)?.waiting;
+	});
 	function signalHerdr(needsHuman: boolean) {
 		if (!inHerdr || needsHuman === herdrBlocked) return;
 		herdrBlocked = needsHuman;
@@ -128,6 +135,10 @@ export function goalExtension(pi: ExtensionAPI, deps: GoalDeps) {
 			return { entries: [{ type: "custom_message", customType: MESSAGE_TYPE, content: wrapUpPrompt(goal, goal.reason ?? "budget reached", now()), display: false }], continue: true };
 		}
 		if (goal.status !== "active") return;
+		if (delegateWaiting) {
+			settledWhileWaiting = true;
+			return;
+		}
 
 		const progress = observeProgress(goal, await snapshotTree(ctx.cwd));
 		goal = progress.goal;
@@ -150,7 +161,10 @@ export function goalExtension(pi: ExtensionAPI, deps: GoalDeps) {
 
 	// A goal still active once Pi has settled was stopped by something other than our own limits.
 	pi.on("agent_settled", async (_event, ctx) => {
+		const waited = settledWhileWaiting;
+		settledWhileWaiting = false;
 		if (goal?.status !== "active") return;
+		if (waited && lastOutcome === "completed") return; // waiting on delegates: stay active
 		if (lastOutcome === "error") setStatus("blocked", classifyError(lastError), ctx);
 		else if (lastOutcome === "aborted") setStatus("paused", "interrupted", ctx, true);
 		else setStatus("paused", "agent stopped", ctx);

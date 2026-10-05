@@ -2,13 +2,38 @@
   "name": "pi-verified-goal",
   "version": "0.1.0",
   "description": "Codex-style /goal for pi where completion must pass a verify command and an independent read-only auditor the agent cannot edit or switch off.",
-  "keywords": ["pi-package", "pi", "pi-extension", "goal", "autonomous", "auditor"],
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "goal",
+    "autonomous",
+    "auditor"
+  ],
   "license": "MIT",
   "author": "Jarno Keskikangas",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jkeskikangas/pi-verified-goal.git"
+  },
+  "homepage": "https://github.com/jkeskikangas/pi-verified-goal#readme",
+  "bugs": {
+    "url": "https://github.com/jkeskikangas/pi-verified-goal/issues"
+  },
   "type": "module",
-  "engines": { "node": ">=22" },
-  "files": ["src", "README.md", "LICENSE"],
-  "pi": { "extensions": ["./src/index.ts"] },
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
   "scripts": {
     "test": "node --experimental-strip-types --test test/*.test.ts",
     "typecheck": "tsc --noEmit -p ."

@@ -1,6 +1,6 @@
 # pi-verified-goal
 
-Codex-style `/goal` for [pi](https://pi.dev): the agent keeps working on an objective across turns until it is done. Unlike other goal extensions, **the agent cannot declare itself done.** Completion must pass gates the harness runs and the agent cannot edit, skip or switch off.
+Codex-style `/goal` for [pi](https://pi.dev): the agent keeps working on an objective across turns until it is done. Unlike other goal extensions, **the agent cannot declare itself done.** By default an independent auditor judges every completion claim, so it works for any task, with or without tests. Where a deterministic check exists, add it with `--verify`.
 
 ## Usage
 
@@ -11,25 +11,32 @@ Codex-style `/goal` for [pi](https://pi.dev): the agent keeps working on an obje
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--verify "<cmd>"` | none | Shell command that must exit 0 before completion is accepted |
 | `--no-audit` | audit on | Skip the independent auditor |
+| `--verify "<cmd>"` | none | Optional shell command that must exit 0 before the audit runs |
 | `--audit-model provider/id` | executor's model | Model for the auditor (a different model is a stronger check) |
 | `--tokens 500k` | none | Token budget (input + output + cache writes; cache reads excluded) |
 | `--time 2h` | none | Active-time budget |
 | `--turns N` | 30 | Cap on automatic continuations |
 | `--idle N` | 5 | Pause after N consecutive runs that leave the workspace unchanged (0 disables) |
 
-Example: `/goal --verify "npm test" --tokens 2m Migrate the date utils from moment to date-fns`
+Examples:
+
+```
+/goal Write a design doc for the billing retry flow in docs/billing-retries.md
+/goal --verify "npm test" --tokens 2m Migrate the date utils from moment to date-fns
+```
+
+The first goal is judged by the auditor alone. In the second, `npm test` must pass first, and the auditor sees its output.
 
 ## How completion works
 
 When the agent calls `goal_complete`:
 
-1. **Verify:** the harness runs `--verify` in `/bin/sh`. A non-zero exit returns the output tail to the agent, and the goal stays active.
-2. **Audit:** a separate `pi` process is started with no session history, skills, prompt templates or context files, and only `read, grep, find, ls`. It receives:
+1. **Verify (only with `--verify`):** the harness runs the command in `/bin/sh`. A non-zero exit returns the output tail to the agent, and the goal stays active.
+2. **Audit (default):** a separate `pi` process is started with no session history, skills, prompt templates or context files, and only `read, grep, find, ls`. It receives:
    - the objective as you wrote it;
    - the agent's summary, marked untrusted;
-   - the verify output;
+   - the verify output, if any;
    - a diff the harness computes between the workspace when the goal started and now, including new untracked files.
 
    It must end with `VERDICT: APPROVED` on the last line. A rejection anywhere fails safe.

@@ -55,6 +55,10 @@ The objective, verify command and audit settings are set only by `/goal` and sto
 - **Reopening:** resuming, forking, reloading or navigating `/tree` restores the branch's goal as paused. It never auto-runs.
 - **State size:** state is a session entry written on transitions and once per continuation, not on every tool call.
 
+## Herdr
+
+Inside [Herdr](https://herdr.dev) (`HERDR_ENV=1`), a goal that stops for a human marks its pane **blocked** through the official Herdr pi integration. Herdr then notifies you, and `herdr agent wait` returns. Stops that need a human are: blocked, budget or run limit reached, stalled, or auditor unavailable. Stops you caused yourself, such as pause, Esc or reopening a session, don't signal. Resume, clear or a new goal clears the signal. Outside Herdr nothing is emitted.
+
 ## Notes
 
 - Uninstall other `/goal` extensions first (`pi remove npm:@narumitw/pi-goal`). They register the same command and tool names.

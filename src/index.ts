@@ -52,10 +52,23 @@ export function goalExtension(pi: ExtensionAPI, deps: GoalDeps) {
 		ctx.ui.setStatus("verified-goal", goal && goal.status !== "complete" ? statusLine(goal, now()) : undefined);
 	}
 
-	function setStatus(status: GoalStatus, reason: string | undefined, ctx?: ExtensionContext) {
+	// Inside Herdr, a goal that stops for a human marks the pane blocked through the official Herdr pi
+	// integration's "herdr:blocked" event, so Herdr notifies the user and `herdr agent wait` returns.
+	// The integration counts active/inactive events, so emit only on edges.
+	const inHerdr = process.env.HERDR_ENV === "1";
+	let herdrBlocked = false;
+	function signalHerdr(needsHuman: boolean) {
+		if (!inHerdr || needsHuman === herdrBlocked) return;
+		herdrBlocked = needsHuman;
+		pi.events.emit("herdr:blocked", needsHuman ? { active: true, label: `goal ${goal?.status}: ${goal?.reason ?? ""}`.slice(0, 120) } : { active: false });
+	}
+
+	/** `byUser`: the user caused this stop (pause, Esc, reopen), so it needs no attention signal. */
+	function setStatus(status: GoalStatus, reason: string | undefined, ctx?: ExtensionContext, byUser = false) {
 		if (!goal) return;
 		goal = transition(goal, status, reason, now());
 		persist();
+		signalHerdr(!byUser && (status === "blocked" || status === "limited" || status === "paused"));
 		if (ctx) {
 			show(ctx);
 			if (status !== "active") ctx.ui.notify(`Goal ${status}${reason ? `: ${reason}` : ""}`, status === "complete" ? "info" : "warning");
@@ -67,7 +80,7 @@ export function goalExtension(pi: ExtensionAPI, deps: GoalDeps) {
 		goal = latestGoal(ctx.sessionManager.getBranch());
 		previousFindings = undefined;
 		// Never auto-run a restored goal: the user may not expect autonomous work on reopen.
-		if (goal?.status === "active") setStatus("paused", `${why}; /goal resume to continue`, ctx);
+		if (goal?.status === "active") setStatus("paused", `${why}; /goal resume to continue`, ctx, true);
 		show(ctx);
 	}
 
@@ -139,7 +152,8 @@ export function goalExtension(pi: ExtensionAPI, deps: GoalDeps) {
 	pi.on("agent_settled", async (_event, ctx) => {
 		if (goal?.status !== "active") return;
 		if (lastOutcome === "error") setStatus("blocked", classifyError(lastError), ctx);
-		else setStatus("paused", lastOutcome === "aborted" ? "interrupted" : "agent stopped", ctx);
+		else if (lastOutcome === "aborted") setStatus("paused", "interrupted", ctx, true);
+		else setStatus("paused", "agent stopped", ctx);
 	});
 
 	pi.registerTool({
@@ -249,7 +263,7 @@ export function goalExtension(pi: ExtensionAPI, deps: GoalDeps) {
 			}
 			if (sub === "pause") {
 				if (goal?.status !== "active" && goal?.status !== "limited") return ctx.ui.notify("No running goal.", "warning");
-				setStatus("paused", "paused by user", ctx);
+				setStatus("paused", "paused by user", ctx, true);
 				return;
 			}
 			if (sub === "resume") {
@@ -257,6 +271,7 @@ export function goalExtension(pi: ExtensionAPI, deps: GoalDeps) {
 				goal = resume(goal, now());
 				previousFindings = undefined;
 				persist();
+				signalHerdr(false);
 				return start(ctx, continuationPrompt(goal, now()));
 			}
 			if (sub === "clear") {
@@ -264,6 +279,7 @@ export function goalExtension(pi: ExtensionAPI, deps: GoalDeps) {
 				if (ctx.hasUI && goal.status === "active" && !(await ctx.ui.confirm("Clear goal?", goal.objective.slice(0, 200)))) return;
 				goal = undefined;
 				persist();
+				signalHerdr(false);
 				show(ctx);
 				return ctx.ui.notify("Goal cleared.", "info");
 			}
@@ -282,6 +298,7 @@ export function goalExtension(pi: ExtensionAPI, deps: GoalDeps) {
 			goal = createGoal(opts, randomUUID().slice(0, 8), now(), await snapshotTree(ctx.cwd));
 			previousFindings = undefined;
 			persist();
+			signalHerdr(false);
 			if (opts.audit && !goal.baseline) ctx.ui.notify("Not a git repository: the auditor will get no diff and must inspect files directly.", "warning");
 			start(ctx, kickoffPrompt(goal, now()));
 		},

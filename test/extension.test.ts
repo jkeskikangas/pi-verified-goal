@@ -29,6 +29,7 @@ function host(opts: { audits?: AuditResult[]; confirm?: boolean } = {}) {
 	const commands = new Map<string, any>();
 	const entries: any[] = [];
 	const sent: any[] = [];
+	const events: any[] = [];
 	const notes: string[] = [];
 	const auditInputs: AuditInput[] = [];
 	const audits = [...(opts.audits ?? [])];
@@ -39,6 +40,7 @@ function host(opts: { audits?: AuditResult[]; confirm?: boolean } = {}) {
 		registerCommand: (name: string, c: any) => commands.set(name, c),
 		appendEntry: (customType: string, data: unknown) => entries.push({ type: "custom", customType, data }),
 		sendMessage: (m: any, o: any) => sent.push({ ...m, ...o }),
+		events: { emit: (name: string, data: any) => events.push({ name, ...data }) },
 	};
 	const ctx: any = {
 		cwd,
@@ -59,7 +61,7 @@ function host(opts: { audits?: AuditResult[]; confirm?: boolean } = {}) {
 	const callTool = (name: string, params: any) => tools.get(name).execute("id", params, undefined, undefined, ctx);
 	const command = (args: string) => commands.get("goal").handler(args, ctx);
 	const touch = (content: string) => writeFileSync(join(cwd, "work.txt"), content);
-	return { emit, goal, settle, callTool, command, touch, entries, sent, notes, auditInputs, ctx };
+	return { emit, goal, settle, callTool, command, touch, entries, sent, notes, auditInputs, ctx, events };
 }
 
 const approved: AuditResult = { verdict: "approved", report: "ok\nVERDICT: APPROVED", tokens: 100 };
@@ -224,3 +226,48 @@ test("replacing needs confirmation; clear removes the goal", async () => {
 	await h.command("clear");
 	assert.equal(h.goal(), null);
 });
+
+function withHerdr<T>(on: boolean, fn: () => Promise<T>): Promise<T> {
+	const prev = process.env.HERDR_ENV;
+	if (on) process.env.HERDR_ENV = "1";
+	else delete process.env.HERDR_ENV;
+	return fn().finally(() => (prev === undefined ? delete process.env.HERDR_ENV : (process.env.HERDR_ENV = prev)));
+}
+
+test("inside Herdr, stops that need a human mark the pane blocked, once, until resumed", () =>
+	withHerdr(true, async () => {
+		const h = host();
+		await h.command("obj");
+		await h.callTool("goal_blocked", { goal_id: h.goal()!.id, reason: "need API key" });
+		assert.equal(h.events.length, 1);
+		assert.deepEqual([h.events[0].name, h.events[0].active], ["herdr:blocked", true]);
+		assert.match(h.events[0].label, /goal blocked: need API key/);
+		await h.command("resume");
+		assert.deepEqual(h.events.map((e) => e.active), [true, false]);
+		await h.command("--idle 1 obj2");
+		await h.settle();
+		await h.settle(); // stall -> paused by the system
+		assert.deepEqual(h.events.map((e) => e.active), [true, false, true]);
+		await h.command("clear");
+		assert.deepEqual(h.events.map((e) => e.active), [true, false, true, false]);
+	}));
+
+test("inside Herdr, stops the user caused do not signal", () =>
+	withHerdr(true, async () => {
+		const h = host();
+		await h.command("obj");
+		await h.command("pause");
+		await h.command("resume");
+		await h.emit("turn_end", { outcome: "aborted" });
+		await h.emit("agent_settled");
+		await h.emit("session_start", { reason: "resume" });
+		assert.deepEqual(h.events, []);
+	}));
+
+test("outside Herdr nothing is emitted", () =>
+	withHerdr(false, async () => {
+		const h = host();
+		await h.command("obj");
+		await h.callTool("goal_blocked", { goal_id: h.goal()!.id, reason: "x" });
+		assert.deepEqual(h.events, []);
+	}));

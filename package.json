@@ -1,6 +1,6 @@
 {
   "name": "pi-verified-goal",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Codex-style /goal for pi where completion must pass a verify command and an independent read-only auditor the agent cannot edit or switch off.",
   "keywords": [
     "pi-package",
